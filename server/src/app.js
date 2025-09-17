@@ -1,0 +1,212 @@
+import http from 'node:http';
+
+import cors from 'cors';
+import express from 'express';
+import expressRateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
+import morgan from 'morgan';
+import { Server as SocketIOServer } from 'socket.io';
+
+import config from './config.js';
+import authMiddleware from './middleware/auth.js';
+import Chat from './models/Chat.js';
+import authRouter from './routes/auth.js';
+import buildKeybundleRouter from './routes/keybundle.js';
+import messagesRouter from './routes/messages.js';
+import { mountTestBootstrap } from './test/bootstrap.routes.js';
+
+export async function connectMongo(uri = config.get('mongo.uri')) {
+  await mongoose.connect(uri);
+}
+
+const OBJECT_ID_RE = /^[a-f\d]{24}$/i;
+const REAUTH_WINDOW_MS = 60_000;
+const REAUTH_MAX_ATTEMPTS = 5;
+
+export function createApp({
+  authMiddleware: overrideAuth,
+  audit,
+  logger = console,
+  messageObserver,
+  onMessage,
+} = {}) {
+  const app = express();
+  app.locals.logger = logger;
+
+  const auditStream = {
+    write: (str) => {
+      const line = str.endsWith('\n') ? str.slice(0, -1) : str;
+      if (audit) {
+        audit(line);
+      } else {
+        logger.info?.(line) ?? logger.log?.(line);
+      }
+    },
+  };
+
+  app.use(helmet());
+  app.use(cors({ origin: config.get('server.cors.origins'), credentials: true }));
+  app.use(express.json({ limit: config.get('server.jsonLimit'), strict: true }));
+  app.use(morgan('tiny', { stream: auditStream }));
+  app.use(expressRateLimit({ windowMs: 60_000, max: 300 }));
+
+  const pass = (req, _res, next) => next();
+  const auth = overrideAuth || authMiddleware || pass;
+
+  const perUserLimiter = expressRateLimit({
+    windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000),
+    max: Number(process.env.RATE_LIMIT_MAX || 120),
+    keyGenerator: (req) => req.user?.id || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  app.use('/api/auth', authRouter);
+
+  app.use('/api/keybundle', buildKeybundleRouter(auth));
+
+  const messagesMiddlewares = [auth, perUserLimiter];
+  if (typeof messageObserver === 'function') {
+    messagesMiddlewares.push((req, _res, next) => {
+      try {
+        messageObserver(req.body);
+      } catch (err) {
+        logger.error?.('messageObserver_failed', err);
+      }
+      next();
+    });
+  }
+  messagesMiddlewares.push(messagesRouter({ auth: null, onMessage }));
+  app.use('/api/messages', ...messagesMiddlewares);
+
+  mountTestBootstrap(app);
+
+  app.get('/', (_req, res) => {
+    res.send('Secure Messenger API');
+  });
+
+  app.use((err, _req, res, _next) => {
+    logger.error?.('Unhandled error:', err);
+    res.status(500).json({ error: 'internal_error' });
+  });
+
+  return app;
+}
+
+function verifySocketToken(token, { secret, audience, issuer }) {
+  const verifyOptions = { algorithms: ['HS256'] };
+  if (audience) {
+    verifyOptions.audience = audience;
+  }
+  if (issuer) {
+    verifyOptions.issuer = issuer;
+  }
+  const payload = jwt.verify(token, secret, verifyOptions);
+  const userId = payload.sub || payload.userId || payload.id;
+  if (!userId) {
+    throw new Error('unauthorized');
+  }
+  return userId.toString();
+}
+
+export function attachSockets(server, { cors: corsOptions } = {}) {
+  const allowedOriginsEnv = process.env.SOCKET_ALLOWED_ORIGINS;
+  const allowedOrigins = allowedOriginsEnv
+    ? allowedOriginsEnv
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+    : config.get('server.cors.origins');
+
+  const io = new SocketIOServer(server, {
+    cors: {
+      origin: corsOptions?.origin ?? allowedOrigins,
+      credentials: true,
+    },
+  });
+
+  const secret = process.env.JWT_SECRET || config.get('jwt.secret');
+  const audience = process.env.JWT_AUDIENCE || undefined;
+  const issuer = process.env.JWT_ISSUER || undefined;
+
+  io.use((socket, next) => {
+    try {
+      const header = socket.handshake.headers?.authorization;
+      const tokenFromHeader =
+        typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : undefined;
+      const token = tokenFromHeader || socket.handshake.auth?.token;
+      if (!token) {
+        return next(new Error('unauthorized'));
+      }
+
+      const userId = verifySocketToken(token, { secret, audience, issuer });
+      socket.data.userId = userId;
+      socket.data.reauthAttempts = [];
+      return next();
+    } catch {
+      return next(new Error('unauthorized'));
+    }
+  });
+
+  io.on('connection', (socket) => {
+    socket.on('join', async ({ chatId } = {}, ack) => {
+      try {
+        if (typeof chatId !== 'string' || !OBJECT_ID_RE.test(chatId)) {
+          throw new Error('bad chatId');
+        }
+        const ok = await Chat.isMember(chatId, socket.data?.userId);
+        if (!ok) {
+          throw new Error('forbidden');
+        }
+        await socket.join(chatId);
+        ack?.({ ok: true });
+      } catch (err) {
+        ack?.({ ok: false, error: err.message });
+      }
+    });
+
+    socket.on('reauth', async ({ accessToken } = {}, ack) => {
+      try {
+        const now = Date.now();
+        const attempts = Array.isArray(socket.data.reauthAttempts)
+          ? socket.data.reauthAttempts.filter((ts) => now - ts <= REAUTH_WINDOW_MS)
+          : [];
+        if (attempts.length >= REAUTH_MAX_ATTEMPTS) {
+          throw new Error('rate_limited');
+        }
+        if (typeof accessToken !== 'string' || !accessToken) {
+          throw new Error('invalid_token');
+        }
+        attempts.push(now);
+        socket.data.reauthAttempts = attempts;
+
+        const nextUserId = verifySocketToken(accessToken, { secret, audience, issuer });
+        socket.data.userId = nextUserId;
+
+        const rooms = [...socket.rooms].filter((room) => room !== socket.id);
+        await Promise.all(
+          rooms.map(async (room) => {
+            const member = await Chat.isMember(room, nextUserId);
+            if (!member) {
+              await socket.leave(room);
+            }
+          })
+        );
+
+        ack?.({ ok: true });
+      } catch (err) {
+        ack?.({ ok: false, error: err.message || 'unauthorized' });
+      }
+    });
+  });
+
+  return io;
+}
+
+export async function attachHttp(app, options = {}) {
+  const server = http.createServer(app);
+  const io = attachSockets(server, options.io);
+  return { app, server, io };
+}
