@@ -2,7 +2,7 @@
 
 | Пункт ТЗ                | Где посмотреть                                                                                          |
 | ----------------------- | ------------------------------------------------------------------------------------------------------- |
-| Анализ и архитектура    | [docs/ARCHITECTURE.md](ARCHITECTURE.md), [docs/THREAT_MODEL.md](THREAT_MODEL.md)                        |
+| Анализ и архитектура    | [docs/ARCHITECTURE.md](ARCHITECTURE.md), [docs/THREAT-MODEL.md](THREAT-MODEL.md)                        |
 | Требования и протокол   | [docs/SECURITY.md](SECURITY.md), [docs/API.md](API.md)                                                  |
 | Реализация клиента      | `client/src/crypto/signal.js`, `client/src/crypto/keystore.js`, `client/src/api/api.js`                 |
 | Реализация сервера      | `server/src/app.js`, `server/src/routes/messages.js`, `server/src/services/replayGuard.js`              |

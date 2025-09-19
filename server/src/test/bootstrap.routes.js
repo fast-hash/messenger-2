@@ -3,7 +3,10 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 
 export function mountTestBootstrap(app) {
-  if (process.env.NODE_ENV !== 'test') return;
+  const verifyMode = String(process.env.VERIFY_MODE || '');
+  const isVerifyEnabled = verifyMode === '1';
+  if (!isVerifyEnabled) return;
+  if (process.env.NODE_ENV === 'production') return;
 
   const router = express.Router();
 
@@ -15,15 +18,31 @@ export function mountTestBootstrap(app) {
     const userB = new mongoose.Types.ObjectId();
     const chatId = new mongoose.Types.ObjectId();
 
+    const now = new Date();
     await Users.insertMany([
-      { _id: userA, username: 'userA', createdAt: new Date() },
-      { _id: userB, username: 'userB', createdAt: new Date() },
+      {
+        _id: userA,
+        username: 'userA',
+        email: 'userA@example.test',
+        password: 'bootstrap-password',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        _id: userB,
+        username: 'userB',
+        email: 'userB@example.test',
+        password: 'bootstrap-password',
+        createdAt: now,
+        updatedAt: now,
+      },
     ]);
 
     await Chats.insertOne({
       _id: chatId,
-      participants: [userA.toString(), userB.toString()],
-      createdAt: new Date(),
+      participants: [userA, userB],
+      createdAt: now,
+      updatedAt: now,
     });
 
     const sign = (sub) =>

@@ -13,6 +13,13 @@
 - Клиент хранит приватные ключи в IndexedDB, шифруя их WebCrypto (AES-GCM) с ключом, полученным через PBKDF2 от пользовательской парольной фразы.【F:client/src/crypto/keystore.js†L1-L120】【F:client/src/crypto/keystore.js†L200-L252】
 - Identity и pre-keys синхронизируются с крипто-воркером для работы libsignal, но никогда не покидают браузер в открытом виде.【F:client/src/crypto/signal.js†L12-L120】
 - Node-воркер подключается только в тестах и выполняется из локального файла libsignal; в продакшене браузерный воркер импортируется через `importScripts` в изолированной среде.【F:client/src/crypto/worker/crypto.browser.worker.js†L1-L18】【F:client/src/crypto/worker/crypto.node.worker.js†L1-L22】
+- JWT_CLOCK_TOLERANCE_SEC = 120 # допуск для exp/nbf
+
+## Keystore (client)
+
+- Vault: IndexedDB, формат { v, kdf{PBKDF2/SHA-256, iterations=310000, salt}, cipher{AES-GCM, iv}, ct }.
+- Смена пароля: re-wrap содержимого с новыми salt/iv, атомарная запись (одна транзакция IndexedDB).
+- Запрещён localStorage/sessionStorage (ESLint), ключи неэкстрактируемые.
 
 ## Replay Guard
 

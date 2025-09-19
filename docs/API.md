@@ -2,6 +2,8 @@
 
 ## REST Endpoints
 
+Полная спецификация доступна в файле [docs/api/openapi.yaml](api/openapi.yaml).
+
 ### POST /api/auth/register
 
 - Тело: `{ username, email, password, publicKey }`

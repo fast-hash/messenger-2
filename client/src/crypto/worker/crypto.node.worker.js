@@ -14,7 +14,7 @@ if (!scope.window) {
 }
 
 function loadLibsignalFromDisk() {
-  const filePath = resolve(__dirname, '../libsignal-protocol.js');
+  const filePath = resolve(__dirname, '../libsignal-protocol/index.js');
   const source = readFileSync(filePath, 'utf-8');
   // eslint-disable-next-line no-eval, security/detect-eval-with-expression
   eval(source);

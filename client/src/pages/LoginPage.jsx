@@ -35,7 +35,7 @@ export default function LoginPage() {
       });
       signalStore.setLocalRegistrationId(identity.registrationId);
 
-      const preKeys = await loadPreKeys();
+      const preKeys = await loadPreKeys(form.passphrase);
       if (preKeys) {
         signalStore.storeSignedPreKey(preKeys.signedPreKey.keyId, preKeys.signedPreKey.keyPair);
         preKeys.oneTimePreKeys.forEach((item) => {

@@ -2,7 +2,7 @@ import { createApp, connectMongo, attachHttp } from './src/app.js';
 import config from './src/config.js';
 import authMiddleware from './src/middleware/auth.js';
 
-const port = config.get('server.port');
+const port = Number(process.env.PORT || '') || config.get('server.port');
 
 await connectMongo();
 

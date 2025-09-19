@@ -1,8 +1,11 @@
 node_modules/
 .vite/
 coverage/
+coverage
 artifacts/
+coverage-artifacts/
 *.log
+client/dist
 logs/
 dist/
 build/
@@ -18,3 +21,4 @@ docker-data/
 .idea/
 *.iml
 slides/deck.pdf
+tmp/

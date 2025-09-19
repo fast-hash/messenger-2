@@ -10,6 +10,8 @@ import morgan from 'morgan';
 import { Server as SocketIOServer } from 'socket.io';
 
 import config from './config.js';
+import { requestIdLogger } from './logger.js';
+import { httpMetrics, metricsHandler, wireWsMetrics, incWsAuthFailed } from './metrics.js';
 import authMiddleware from './middleware/auth.js';
 import Chat from './models/Chat.js';
 import authRouter from './routes/auth.js';
@@ -17,8 +19,13 @@ import buildKeybundleRouter from './routes/keybundle.js';
 import messagesRouter from './routes/messages.js';
 import { mountTestBootstrap } from './test/bootstrap.routes.js';
 
-export async function connectMongo(uri = config.get('mongo.uri')) {
-  await mongoose.connect(uri);
+export async function connectMongo(uri) {
+  const configuredUri =
+    uri ?? process.env.MONGO_URL ?? (config.has('mongo.uri') ? config.get('mongo.uri') : undefined);
+  if (!configuredUri) {
+    throw new Error('MONGO_URL not configured');
+  }
+  await mongoose.connect(configuredUri);
 }
 
 const OBJECT_ID_RE = /^[a-f\d]{24}$/i;
@@ -46,7 +53,43 @@ export function createApp({
     },
   };
 
-  app.use(helmet());
+  app.use(requestIdLogger);
+  app.use(httpMetrics);
+
+  app.use(
+    helmet({
+      // Базовые заголовки безопасности
+      hsts: { maxAge: 15552000, includeSubDomains: false },
+      referrerPolicy: { policy: 'no-referrer' },
+      crossOriginOpenerPolicy: { policy: 'same-origin' },
+      crossOriginResourcePolicy: { policy: 'same-origin' },
+      // Строгая CSP без unsafe-*; worker + ws/wss разрешены
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          'default-src': ["'self'"],
+          'base-uri': ["'none'"],
+          'frame-ancestors': ["'none'"],
+          'object-src': ["'none'"],
+          'script-src': ["'self'"],
+          'style-src': ["'self'"],
+          'img-src': ["'self'", 'data:'],
+          'font-src': ["'self'", 'data:'],
+          'connect-src': ["'self'", 'ws:', 'wss:'],
+          'worker-src': ["'self'", 'blob:'],
+          'manifest-src': ["'self'"],
+          'form-action': ["'self'"],
+        },
+      },
+    })
+  );
+  app.use((_, res, next) => {
+    res.setHeader(
+      'Permissions-Policy',
+      'accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), usb=()'
+    );
+    next();
+  });
   app.use(cors({ origin: config.get('server.cors.origins'), credentials: true }));
   app.use(express.json({ limit: config.get('server.jsonLimit'), strict: true }));
   app.use(morgan('tiny', { stream: auditStream }));
@@ -80,6 +123,12 @@ export function createApp({
   }
   messagesMiddlewares.push(messagesRouter({ auth: null, onMessage }));
   app.use('/api/messages', ...messagesMiddlewares);
+
+  app.get('/healthz', (_req, res) => {
+    res.status(200).json({ ok: true });
+  });
+
+  app.get('/metrics', metricsHandler);
 
   mountTestBootstrap(app);
 
@@ -127,6 +176,8 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
     },
   });
 
+  wireWsMetrics(io);
+
   const secret = process.env.JWT_SECRET || config.get('jwt.secret');
   const audience = process.env.JWT_AUDIENCE || undefined;
   const issuer = process.env.JWT_ISSUER || undefined;
@@ -138,6 +189,7 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
         typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : undefined;
       const token = tokenFromHeader || socket.handshake.auth?.token;
       if (!token) {
+        incWsAuthFailed();
         return next(new Error('unauthorized'));
       }
 
@@ -146,6 +198,7 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
       socket.data.reauthAttempts = [];
       return next();
     } catch {
+      incWsAuthFailed();
       return next(new Error('unauthorized'));
     }
   });
