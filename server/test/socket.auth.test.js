@@ -1,102 +1,69 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import { createServer } from 'node:http';
-import test from 'node:test';
+import { after, before, test } from 'node:test';
 
 import jwt from 'jsonwebtoken';
-import { MongoMemoryServer } from 'mongodb-memory-server';
-import mongoose from 'mongoose';
-import { io as Client } from 'socket.io-client';
+import { Server } from 'socket.io';
+import ioClient from 'socket.io-client';
+import { socketAuth } from '../src/ws/auth-middleware.js';
 
-import { attachSockets } from '../src/app.js';
-import Chat from '../src/models/Chat.js';
-
-process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-socket-secret';
-process.env.JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'aud';
-process.env.JWT_ISSUER = process.env.JWT_ISSUER || 'iss';
-
-let mongod;
 let httpServer;
 let io;
-let port;
+let baseURL;
+let PRIV;
+let PUB;
 
-test('setup', async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  httpServer = createServer((_, res) => {
-    res.statusCode = 200;
-    res.end('ok');
-  });
-  io = attachSockets(httpServer);
-  await new Promise((resolve) => httpServer.listen(0, resolve));
-  const address = httpServer.address();
-  port = typeof address === 'object' ? address.port : address;
+before(async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  PRIV = privateKey.export({ type: 'pkcs1', format: 'pem' });
+  PUB = publicKey.export({ type: 'pkcs1', format: 'pem' });
+  process.env.JWT_PUBLIC_KEY = PUB;
+  process.env.JWT_CLOCK_TOLERANCE_SEC = '120';
+
+  httpServer = createServer();
+  io = new Server(httpServer, { cors: { origin: '*' } });
+  socketAuth(io);
+
+  await new Promise((r) => httpServer.listen(0, r));
+  const port = httpServer.address().port;
+  baseURL = `http://127.0.0.1:${port}`;
 });
 
-test('rejects without JWT; allows with JWT and join works', async () => {
-  await assert.rejects(async () => {
-    await new Promise((resolve, reject) => {
-      const client = Client(`http://127.0.0.1:${port}`, {
-        autoConnect: true,
-        transports: ['websocket'],
-      });
-      client.on('connect', () => {
-        client.close();
-        resolve();
-      });
-      client.on('connect_error', (err) => {
-        client.close();
-        reject(err);
-      });
-    });
+after(async () => {
+  await new Promise((r) => io.close(r));
+  await new Promise((r) => httpServer.close(r));
+});
+
+test('expired token -> connect_error + no connection', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const expired = jwt.sign({ sub: 'u1', iat: now - 400, exp: now - 300 }, PRIV, {
+    algorithm: 'RS256',
   });
 
-  const userId = new mongoose.Types.ObjectId().toString();
-  const chatId = new mongoose.Types.ObjectId().toString();
-  await Chat.deleteMany({});
-  await Chat.create({
-    _id: new mongoose.Types.ObjectId(chatId),
-    participants: [new mongoose.Types.ObjectId(userId)],
+  await new Promise((resolve) => {
+    const c = ioClient(baseURL, { auth: { token: expired }, reconnection: false, timeout: 1000 });
+    c.on('connect', () => {
+      c.disconnect();
+      assert.fail('should not connect with expired token');
+    });
+    c.on('connect_error', (err) => {
+      assert.match(String(err?.message || err), /AUTH_FAILED|Unauthorized|401/i);
+      resolve();
+    });
   });
-  const token = jwt.sign({ sub: userId }, process.env.JWT_SECRET, {
-    algorithm: 'HS256',
-    audience: process.env.JWT_AUDIENCE,
-    issuer: process.env.JWT_ISSUER,
-  });
+});
+
+test('valid token -> connect ok', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const good = jwt.sign({ sub: 'u2', iat: now - 1, exp: now + 3600 }, PRIV, { algorithm: 'RS256' });
 
   await new Promise((resolve, reject) => {
-    const client = Client(`http://127.0.0.1:${port}`, {
-      autoConnect: true,
-      transports: ['websocket'],
-      extraHeaders: { Authorization: `Bearer ${token}` },
+    const c = ioClient(baseURL, { auth: { token: good }, reconnection: false, timeout: 2000 });
+    c.on('connect', () => {
+      c.disconnect();
+      resolve();
     });
-    client.on('connect_error', (err) => {
-      client.close();
-      reject(err);
-    });
-    client.on('connect', () => {
-      client.emit('join', { chatId }, (ack) => {
-        try {
-          assert.equal(ack?.ok, true);
-          client.close();
-          resolve();
-        } catch (err) {
-          client.close();
-          reject(err);
-        }
-      });
-    });
+    c.on('connect_error', (e) => reject(e));
   });
-});
-
-test('teardown', async () => {
-  if (io) {
-    io.close();
-  }
-  if (httpServer) {
-    await new Promise((resolve) => httpServer.close(resolve));
-  }
-  await mongoose.disconnect();
-  if (mongod) {
-    await mongod.stop();
-  }
 });

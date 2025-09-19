@@ -5,4 +5,4 @@ coverage/
 artifacts/
 client/dist/
 server/dist/
-client/src/crypto/libsignal-protocol.js
+client/src/crypto/libsignal-protocol/

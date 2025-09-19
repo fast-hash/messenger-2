@@ -1,5 +1,6 @@
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+process.env.VERIFY_MODE = process.env.VERIFY_MODE || '1';
 
 const jwt = (await import('jsonwebtoken')).default;
 const mongoose = (await import('mongoose')).default;

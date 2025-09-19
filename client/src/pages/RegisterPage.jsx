@@ -56,7 +56,7 @@ export function RegisterPage() {
         identityKeyPair: identityMaterial.identityKeyPair,
       });
 
-      await savePreKeys({
+      await savePreKeys(form.passphrase, {
         signedPreKey: identityMaterial.signedPreKey,
         oneTimePreKeys: identityMaterial.oneTimePreKeys,
       });

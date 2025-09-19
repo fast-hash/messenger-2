@@ -13,6 +13,6 @@ setupCryptoWorker({
   },
   loadLibsignal: async () => {
     // eslint-disable-next-line no-undef
-    importScripts(new URL('../libsignal-protocol.js', import.meta.url).toString());
+    importScripts(new URL('../libsignal-protocol/index.js', import.meta.url).toString());
   },
 });

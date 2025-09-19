@@ -77,11 +77,37 @@ module.exports = {
       },
     },
     {
+      files: ['client/src/**'],
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            patterns: [
+              {
+                group: ['libsignal-protocol*'],
+                message: 'libsignal разрешён только внутри crypto/worker',
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {
       files: ['**/*.test.{js,ts,jsx,tsx}'],
       env: { node: true, browser: true },
       rules: { 'no-console': 'off' },
     },
-    { files: ['client/src/crypto/worker/**/*'], env: { worker: true, browser: true, node: true } },
+    {
+      files: ['client/src/crypto/**'],
+      rules: {
+        'no-restricted-globals': ['error', 'localStorage', 'sessionStorage'],
+      },
+    },
+    {
+      files: ['client/src/crypto/worker/**/*'],
+      env: { worker: true, browser: true, node: true },
+      rules: { 'no-restricted-imports': 'off' },
+    },
     { files: ['client/vite.config.js'], env: { node: true, browser: false } },
     { files: ['server/**/*.{js,ts}'], env: { node: true, browser: false } },
   ],

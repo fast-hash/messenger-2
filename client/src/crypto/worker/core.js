@@ -146,6 +146,7 @@ export function setupCryptoWorker({
   const memoryStore = new Map();
   let activeRecipientId = null;
   let libsignalPromise = null;
+  const seenCiphertexts = new Map();
 
   async function ensureLibsignal() {
     if (!libsignalPromise) {
@@ -335,9 +336,20 @@ export function setupCryptoWorker({
     const envelope = deserialiseEnvelope(globalScope, ciphertextBase64);
     const bodyBytes = base64DecodeToBytes(globalScope, envelope.body);
 
+    let seenForRecipient = seenCiphertexts.get(recipientId);
+    if (!seenForRecipient) {
+      seenForRecipient = new Set();
+      seenCiphertexts.set(recipientId, seenForRecipient);
+    }
+    const replayKey = `${envelope.type}:${envelope.body}`;
+    if (seenForRecipient.has(replayKey)) {
+      throw new Error('Replay detected for ciphertext');
+    }
+
     const method = envelope.type === 3 ? 'decryptPreKeyWhisperMessage' : 'decryptWhisperMessage';
 
     const plaintext = await cipher[method](toArrayBuffer(bodyBytes), 'binary');
+    seenForRecipient.add(replayKey);
     return textDecoder.decode(ensureUint8(plaintext));
   }
 
@@ -357,6 +369,7 @@ export function setupCryptoWorker({
     async 'store:clear'() {
       memoryStore.clear();
       activeRecipientId = null;
+      seenCiphertexts.clear();
       return { ok: true };
     },
     async generateIdentityAndPreKeys() {

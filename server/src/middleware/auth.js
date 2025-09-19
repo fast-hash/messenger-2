@@ -1,27 +1,37 @@
+// JWT verification with clock skew tolerance and HTTP middleware
 import jwt from 'jsonwebtoken';
 
-import config from '../config.js';
+const JWT_ALG = ['RS256'];
+const CLOCK_TOLERANCE_SEC = parseInt(process.env.JWT_CLOCK_TOLERANCE_SEC || '120', 10);
 
-export default function auth(req, res, next) {
-  const header = req.header('Authorization');
-  const token = header?.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ error: 'missing_token' });
-  }
+let cachedPubKey = null;
 
+export function getPublicKey() {
+  if (cachedPubKey) return cachedPubKey;
+  const k = process.env.JWT_PUBLIC_KEY;
+  if (!k) throw new Error('JWT_PUBLIC_KEY not set');
+  // поддержка PEM в переменных окружения с \n
+  cachedPubKey = k.replace(/\\n/g, '\n');
+  return cachedPubKey;
+}
+
+export function verifyAccess(token) {
+  if (!token) throw new Error('NO_TOKEN');
+  return jwt.verify(token, getPublicKey(), {
+    algorithms: JWT_ALG,
+    clockTolerance: CLOCK_TOLERANCE_SEC,
+  });
+}
+
+export function authRequired(req, res, next) {
   try {
-    const secret = config.get('jwt.secret');
-    const payload = jwt.verify(token, secret);
-    const userId = payload.userId || payload.id || payload.sub;
-    if (!userId) {
-      return res.status(401).json({ error: 'invalid_token' });
-    }
-    req.user = { id: typeof userId === 'string' ? userId : userId?.toString() };
-    if (!req.user.id) {
-      return res.status(401).json({ error: 'invalid_token' });
-    }
-    next();
+    const hdr = req.headers.authorization || '';
+    const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : '';
+    req.user = verifyAccess(token);
+    return next();
   } catch {
-    return res.status(401).json({ error: 'invalid_token' });
+    res.status(401).json({ error: 'unauthorized' });
   }
 }
+
+export default authRequired;

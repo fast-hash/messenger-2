@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
 
+import { incMessageSaved, incReplayRejected } from '../metrics.js';
 import Chat from '../models/Chat.js';
 import Message from '../models/Message.js';
 import { ensureNotReplayed } from '../services/replayGuard.js';
@@ -63,6 +64,7 @@ export default function messagesRouter({ auth, onMessage } = {}) {
         replayTtlSeconds
       );
       if (!notDuplicate) {
+        incReplayRejected();
         return res.status(409).json({ error: 'duplicate' });
       }
 
@@ -73,6 +75,7 @@ export default function messagesRouter({ auth, onMessage } = {}) {
       };
 
       const created = await Message.create(payload);
+      incMessageSaved();
       const response = {
         id: created._id.toString(),
         chatId: created.chatId.toString(),
