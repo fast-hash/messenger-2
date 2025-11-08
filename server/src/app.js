@@ -194,7 +194,7 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
       }
 
       const userId = verifySocketToken(token, { secret, audience, issuer });
-      socket.data.userId = userId;
+      socket.data.user = { id: userId };
       socket.data.reauthAttempts = [];
       return next();
     } catch {
@@ -209,7 +209,7 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
         if (typeof chatId !== 'string' || !OBJECT_ID_RE.test(chatId)) {
           throw new Error('bad chatId');
         }
-        const ok = await Chat.isMember(chatId, socket.data?.userId);
+        const ok = await Chat.isMember(chatId, socket.data?.user?.id);
         if (!ok) {
           throw new Error('forbidden');
         }
@@ -236,7 +236,7 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
         socket.data.reauthAttempts = attempts;
 
         const nextUserId = verifySocketToken(accessToken, { secret, audience, issuer });
-        socket.data.userId = nextUserId;
+        socket.data.user = { id: nextUserId };
 
         const rooms = [...socket.rooms].filter((room) => room !== socket.id);
         await Promise.all(

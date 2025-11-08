@@ -4,6 +4,18 @@ import jwt from 'jsonwebtoken';
 const JWT_ALG = ['RS256'];
 const CLOCK_TOLERANCE_SEC = parseInt(process.env.JWT_CLOCK_TOLERANCE_SEC || '120', 10);
 
+function buildUser(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('NO_PAYLOAD');
+  }
+  const subject = payload.sub ?? payload.userId ?? payload.id;
+  if (!subject) {
+    throw new Error('NO_SUBJECT');
+  }
+  const id = subject.toString();
+  return { ...payload, id };
+}
+
 let cachedPubKey = null;
 
 export function getPublicKey() {
@@ -17,10 +29,11 @@ export function getPublicKey() {
 
 export function verifyAccess(token) {
   if (!token) throw new Error('NO_TOKEN');
-  return jwt.verify(token, getPublicKey(), {
+  const payload = jwt.verify(token, getPublicKey(), {
     algorithms: JWT_ALG,
     clockTolerance: CLOCK_TOLERANCE_SEC,
   });
+  return buildUser(payload);
 }
 
 export function authRequired(req, res, next) {
