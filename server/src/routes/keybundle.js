@@ -2,6 +2,31 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 
 import KeyBundle from '../models/KeyBundle.js';
+import base64Regex from '../util/base64Regex.js';
+
+function validateOneTimePreKeys(items) {
+  if (!Array.isArray(items)) {
+    return false;
+  }
+
+  for (const entry of items) {
+    if (typeof entry !== 'object' || entry === null) {
+      return false;
+    }
+
+    const { keyId, publicKey } = entry;
+
+    if (!Number.isInteger(keyId) || keyId < 0) {
+      return false;
+    }
+
+    if (typeof publicKey !== 'string' || publicKey.length === 0 || !base64Regex.test(publicKey)) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 export default function keybundleRouter(auth) {
   const router = Router();
@@ -10,6 +35,10 @@ export default function keybundleRouter(auth) {
     const userId = req.user?.id;
     const { identityKey, signedPreKey, oneTimePreKeys } = req.body || {};
     if (!userId || !identityKey || !signedPreKey || !Array.isArray(oneTimePreKeys)) {
+      return res.status(400).json({ error: 'invalid_payload' });
+    }
+
+    if (!validateOneTimePreKeys(oneTimePreKeys)) {
       return res.status(400).json({ error: 'invalid_payload' });
     }
 
@@ -26,7 +55,7 @@ export default function keybundleRouter(auth) {
             used: false,
           })),
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true, context: 'query' }
       );
       return res.sendStatus(204);
     } catch (err) {
