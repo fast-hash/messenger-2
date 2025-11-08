@@ -7,10 +7,8 @@ import { verifyAccess, __resetAuthCache } from '../src/middleware/auth.js';
 
 function withSharedSecret(secret, fn) {
   const previousShared = process.env.JWT_SHARED_SECRET;
-  const previousLegacy = process.env.JWT_SECRET;
   const previousPublic = process.env.JWT_PUBLIC_KEY;
   process.env.JWT_SHARED_SECRET = secret;
-  delete process.env.JWT_SECRET;
   delete process.env.JWT_PUBLIC_KEY;
   __resetAuthCache();
   try {
@@ -20,41 +18,6 @@ function withSharedSecret(secret, fn) {
       delete process.env.JWT_SHARED_SECRET;
     } else {
       process.env.JWT_SHARED_SECRET = previousShared;
-    }
-    if (previousLegacy === undefined) {
-      delete process.env.JWT_SECRET;
-    } else {
-      process.env.JWT_SECRET = previousLegacy;
-    }
-    if (previousPublic === undefined) {
-      delete process.env.JWT_PUBLIC_KEY;
-    } else {
-      process.env.JWT_PUBLIC_KEY = previousPublic;
-    }
-    __resetAuthCache();
-  }
-}
-
-function withLegacySecret(secret, fn) {
-  const previousShared = process.env.JWT_SHARED_SECRET;
-  const previousLegacy = process.env.JWT_SECRET;
-  const previousPublic = process.env.JWT_PUBLIC_KEY;
-  delete process.env.JWT_SHARED_SECRET;
-  process.env.JWT_SECRET = secret;
-  delete process.env.JWT_PUBLIC_KEY;
-  __resetAuthCache();
-  try {
-    fn();
-  } finally {
-    if (previousShared === undefined) {
-      delete process.env.JWT_SHARED_SECRET;
-    } else {
-      process.env.JWT_SHARED_SECRET = previousShared;
-    }
-    if (previousLegacy === undefined) {
-      delete process.env.JWT_SECRET;
-    } else {
-      process.env.JWT_SECRET = previousLegacy;
     }
     if (previousPublic === undefined) {
       delete process.env.JWT_PUBLIC_KEY;
@@ -75,18 +38,6 @@ test('HS256 tokens are accepted when shared secret configured', () => {
     assert.equal(payload.id, 'hs-user');
     assert.equal(payload.sub, 'hs-user');
     assert.equal(payload.userId, 'hs-user');
-  });
-});
-
-test('HS256 tokens use JWT_SECRET env for backwards compatibility', () => {
-  withLegacySecret('legacy-secret', () => {
-    const token = jwt.sign({ sub: 'legacy-user', userId: 'legacy-user' }, 'legacy-secret', {
-      algorithm: 'HS256',
-      expiresIn: '5m',
-    });
-    const payload = verifyAccess(token);
-    assert.equal(payload.id, 'legacy-user');
-    assert.equal(payload.sub, 'legacy-user');
   });
 });
 

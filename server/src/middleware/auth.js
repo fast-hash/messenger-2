@@ -36,10 +36,8 @@ export function getPublicKey() {
 
 export function getSharedSecret() {
   if (cachedSharedSecret) return cachedSharedSecret;
-
-  const envCandidates = [process.env.JWT_SHARED_SECRET, process.env.JWT_SECRET];
-  const fromEnv = envCandidates.find((value) => typeof value === 'string' && value.length > 0);
-  if (fromEnv) {
+  const fromEnv = process.env.JWT_SHARED_SECRET;
+  if (fromEnv && typeof fromEnv === 'string' && fromEnv.length > 0) {
     cachedSharedSecret = fromEnv;
     return cachedSharedSecret;
   }
