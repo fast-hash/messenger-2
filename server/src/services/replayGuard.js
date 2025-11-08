@@ -6,6 +6,8 @@ import config from '../config.js';
 
 let redisClient;
 let connectPromise;
+const fallbackReplayStore = new Map();
+const FALLBACK_MAX_ENTRIES = Math.max(Number.parseInt(process.env.REPLAY_FALLBACK_CAP || '2000', 10) || 2000, 100);
 
 export function sha256Base64Str(b64) {
   return crypto.createHash('sha256').update(b64, 'utf8').digest('hex');
@@ -25,6 +27,10 @@ export async function closeRedis() {
   }
   redisClient = undefined;
   connectPromise = undefined;
+}
+
+export function __resetReplayFallback() {
+  fallbackReplayStore.clear();
 }
 
 async function resolveClient(connectIfNeeded = true) {
@@ -56,15 +62,40 @@ async function resolveClient(connectIfNeeded = true) {
 }
 
 export async function ensureNotReplayed(chatId, encryptedPayload, ttlSeconds = 600) {
-  const client = await resolveClient();
-  if (!client) {
-    return { ok: true, key: null };
+  let client;
+  try {
+    client = await resolveClient();
+  } catch (err) {
+    console.error('[replayGuard]', 'redis connection failed, falling back to memory store');
+    client = undefined;
   }
   const digest = sha256Base64Str(encryptedPayload);
   const key = `replay:${chatId}:${digest}`;
-  const result = await client.set(key, '1', { NX: true, EX: ttlSeconds });
-  const ok = result === 'OK';
-  return { ok, key };
+  if (client) {
+    try {
+      const result = await client.set(key, '1', { NX: true, EX: ttlSeconds });
+      const ok = result === 'OK';
+      return { ok, key };
+    } catch (err) {
+      console.error('[replayGuard]', 'redis set failed, falling back to memory store', err?.message);
+    }
+  }
+
+  const now = Date.now();
+  const expiresAt = now + ttlSeconds * 1000;
+  const existing = fallbackReplayStore.get(key);
+  if (existing && existing > now) {
+    return { ok: false, key };
+  }
+  fallbackReplayStore.set(key, expiresAt);
+  if (fallbackReplayStore.size > FALLBACK_MAX_ENTRIES) {
+    for (const [entryKey, expiry] of fallbackReplayStore) {
+      if (expiry <= now) {
+        fallbackReplayStore.delete(entryKey);
+      }
+    }
+  }
+  return { ok: true, key };
 }
 
 export async function getRedisClient() {

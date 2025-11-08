@@ -26,6 +26,8 @@ test('setup', async () => {
   const pubKeyPem = publicKey.export({ type: 'pkcs1', format: 'pem' });
   process.env.JWT_PUBLIC_KEY = pubKeyPem;
   process.env.JWT_CLOCK_TOLERANCE_SEC = '120';
+  process.env.JWT_AUDIENCE = 'api-test';
+  process.env.JWT_ISSUER = 'api-suite';
 
   mongod = await MongoMemoryServer.create();
   await mongoose.connect(mongod.getUri());
@@ -56,9 +58,11 @@ test('POST /api/messages succeeds with login-style token', async () => {
     participants: [user._id],
   });
 
-  const accessToken = jwt.sign({ userId: user.id }, privateKey, {
+  const accessToken = jwt.sign({ sub: user.id, userId: user.id, tokenVersion: user.tokenVersion }, privateKey, {
     algorithm: 'RS256',
     expiresIn: '15m',
+    audience: 'api-test',
+    issuer: 'api-suite',
   });
 
   const encryptedPayload = Buffer.from('ciphertext').toString('base64');

@@ -24,6 +24,13 @@ const KeyBundleSchema = new mongoose.Schema(
         used: { type: Boolean, default: false },
       },
     ],
+    allowAnyRequester: {
+      type: Boolean,
+      default: false,
+    },
+    allowedRequesters: [
+      { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    ],
   },
   { timestamps: true }
 );
