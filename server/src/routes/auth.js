@@ -16,7 +16,9 @@ router.post('/register', async (req, res) => {
   }
 
   try {
-    const existing = await User.findOne({ email }).lean();
+    const existing = await User.findOne({
+      $or: [{ email }, { username }],
+    }).lean();
     if (existing) {
       return res.status(400).json({ error: 'user_exists' });
     }
@@ -28,6 +30,9 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign({ userId: user.id }, jwtSecret, { expiresIn: jwtExpires });
     return res.status(201).json({ token, userId: user.id });
   } catch (err) {
+    if (err?.code === 11000 && err?.name === 'MongoServerError') {
+      return res.status(400).json({ error: 'user_exists' });
+    }
     req.app?.locals?.logger?.error?.('auth.register_failed', err);
     return res.status(500).json({ error: 'server_error' });
   }
