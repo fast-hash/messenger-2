@@ -3,11 +3,22 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 
 import config from '../config.js';
+import { getSharedSecret } from '../middleware/auth.js';
 import User from '../models/User.js';
 
 const router = Router();
-const jwtSecret = config.get('jwt.secret');
 const jwtExpires = config.get('jwt.expiresIn');
+
+function resolveSigningSecret() {
+  try {
+    return getSharedSecret();
+  } catch (err) {
+    if (err?.message === 'JWT_SECRET_NOT_SET') {
+      throw new Error('JWT signing secret is not configured', { cause: err });
+    }
+    throw err;
+  }
+}
 
 router.post('/register', async (req, res) => {
   const { username, email, password, publicKey } = req.body || {};
@@ -28,7 +39,10 @@ router.post('/register', async (req, res) => {
     const user = await User.create({ username, email, password: hash, publicKey });
 
     const payload = { sub: user.id, userId: user.id };
-    const token = jwt.sign(payload, jwtSecret, { expiresIn: jwtExpires, algorithm: 'HS256' });
+    const token = jwt.sign(payload, resolveSigningSecret(), {
+      expiresIn: jwtExpires,
+      algorithm: 'HS256',
+    });
     return res.status(201).json({ token, userId: user.id });
   } catch (err) {
     if (err?.code === 11000 && err?.name === 'MongoServerError') {
@@ -57,7 +71,10 @@ router.post('/login', async (req, res) => {
     }
 
     const payload = { sub: user.id, userId: user.id };
-    const token = jwt.sign(payload, jwtSecret, { expiresIn: jwtExpires, algorithm: 'HS256' });
+    const token = jwt.sign(payload, resolveSigningSecret(), {
+      expiresIn: jwtExpires,
+      algorithm: 'HS256',
+    });
     return res.json({ token, userId: user.id });
   } catch (err) {
     req.app?.locals?.logger?.error?.('auth.login_failed', err);

@@ -18,6 +18,8 @@ export default function ChatPage() {
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
+  const [joinError, setJoinError] = useState('');
+  const [joinedRoom, setJoinedRoom] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,13 +81,89 @@ export default function ChatPage() {
   }, [chatId, sessionReady]);
 
   useEffect(() => {
+    setJoinError('');
+    setJoinedRoom(false);
     if (!token || !sessionReady) return undefined;
 
-    const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3000', {
+    const configuredUrl = (import.meta.env.VITE_API_URL || '').trim();
+    const fallbackOrigin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'http://localhost:3000';
+    let resolvedUrl = configuredUrl || fallbackOrigin;
+
+    try {
+      resolvedUrl = new URL(resolvedUrl, fallbackOrigin).toString();
+    } catch (err) {
+      setJoinError('Некорректный адрес сервера WebSocket.');
+      console.error('Invalid socket URL:', err);
+      return undefined;
+    }
+
+    if (typeof window !== 'undefined' && window.location?.protocol === 'https:') {
+      try {
+        const parsed = new URL(resolvedUrl);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'ws:') {
+          setJoinError('Для защищённого соединения укажите HTTPS/WSS адрес в VITE_API_URL.');
+          return undefined;
+        }
+      } catch (err) {
+        setJoinError('Не удалось разобрать адрес сервера WebSocket.');
+        console.error('Failed to parse socket URL:', err);
+        return undefined;
+      }
+    }
+
+    const describeJoinError = (reason) => {
+      switch (reason) {
+        case 'forbidden':
+          return 'Вы не можете подключиться к этому чату.';
+        case 'bad chatId':
+        case 'invalid_chat':
+          return 'Некорректный идентификатор чата.';
+        case 'rate_limited':
+          return 'Слишком много попыток переподключения. Попробуйте позже.';
+        case 'unauthorized':
+          return 'Сессия недействительна. Выполните вход ещё раз.';
+        default:
+          if (!reason || reason === 'connection_error') {
+            return 'Не удалось подключиться к чату.';
+          }
+          return reason;
+      }
+    };
+
+    const socket = io(resolvedUrl, {
       auth: { token },
     });
 
-    socket.emit('join', chatId);
+    let cancelled = false;
+
+    const attemptJoin = () => {
+      if (cancelled) return;
+      setJoinedRoom(false);
+      socket.emit('join', { chatId }, (ack) => {
+        if (cancelled) return;
+        if (!ack?.ok) {
+          const message = describeJoinError(ack?.error);
+          setJoinError(message);
+          if (ack?.error === 'unauthorized') {
+            logout();
+            socket.disconnect();
+          }
+          return;
+        }
+        setJoinError('');
+        setJoinedRoom(true);
+      });
+    };
+
+    socket.on('connect', attemptJoin);
+    socket.on('reconnect', attemptJoin);
+
+    if (socket.connected) {
+      attemptJoin();
+    }
 
     const handler = async (message) => {
       try {
@@ -106,14 +184,38 @@ export default function ChatPage() {
 
     socket.on('message', handler);
 
+    const connectErrorHandler = (err) => {
+      if (cancelled) return;
+      const code = err?.message || err?.data?.message || 'connection_error';
+      const friendly = describeJoinError(code);
+      setJoinError(friendly);
+      if (code === 'unauthorized') {
+        logout();
+      }
+      setJoinedRoom(false);
+    };
+
+    const disconnectHandler = () => {
+      if (cancelled) return;
+      setJoinedRoom(false);
+    };
+
+    socket.on('connect_error', connectErrorHandler);
+    socket.on('disconnect', disconnectHandler);
+
     return () => {
+      cancelled = true;
       socket.off('message', handler);
+      socket.off('connect_error', connectErrorHandler);
+      socket.off('disconnect', disconnectHandler);
+      socket.off('connect', attemptJoin);
+      socket.off('reconnect', attemptJoin);
       socket.disconnect();
     };
-  }, [chatId, sessionReady, token]);
+  }, [chatId, logout, sessionReady, token]);
 
   const handleSend = async (plainText) => {
-    if (!sessionReady || !plainText) return;
+    if (!sessionReady || !plainText || !joinedRoom) return;
     try {
       const { encryptedPayload } = await sendCiphertext(chatId, plainText);
       setMessages((prev) => {
@@ -176,6 +278,11 @@ export default function ChatPage() {
       <h3>
         Чат <em>{chatId}</em>
       </h3>
+      {joinError ? (
+        <div role="alert" style={{ color: 'red', marginBottom: 12 }}>
+          {joinError}
+        </div>
+      ) : null}
       <ChatWindow
         messages={messages}
         currentUserId={userId}

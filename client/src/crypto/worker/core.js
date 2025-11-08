@@ -147,6 +147,41 @@ export function setupCryptoWorker({
   let activeRecipientId = null;
   let libsignalPromise = null;
   const seenCiphertexts = new Map();
+  const MAX_TRACKED_RECIPIENTS = 32;
+  const MAX_SEEN_PER_RECIPIENT = 512;
+
+  function ensureRecipientSet(recipientId) {
+    let set = seenCiphertexts.get(recipientId);
+    if (!set) {
+      if (seenCiphertexts.size >= MAX_TRACKED_RECIPIENTS) {
+        const oldestRecipient = seenCiphertexts.keys().next().value;
+        if (typeof oldestRecipient !== 'undefined') {
+          seenCiphertexts.delete(oldestRecipient);
+        }
+      }
+      set = new Set();
+      seenCiphertexts.set(recipientId, set);
+    }
+    return set;
+  }
+
+  function hasSeenCiphertext(recipientId, ciphertextKey) {
+    const set = seenCiphertexts.get(recipientId);
+    return set ? set.has(ciphertextKey) : false;
+  }
+
+  function rememberCiphertext(recipientId, ciphertextKey) {
+    const set = ensureRecipientSet(recipientId);
+    if (set.size >= MAX_SEEN_PER_RECIPIENT) {
+      const oldest = set.values().next().value;
+      if (typeof oldest !== 'undefined') {
+        set.delete(oldest);
+      }
+    }
+    set.add(ciphertextKey);
+    seenCiphertexts.delete(recipientId);
+    seenCiphertexts.set(recipientId, set);
+  }
 
   async function ensureLibsignal() {
     if (!libsignalPromise) {
@@ -188,6 +223,33 @@ export function setupCryptoWorker({
     return memoryStore.get(key) ?? null;
   }
 
+  function identityKeyFingerprint(value) {
+    if (!value) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    try {
+      return base64EncodeBytes(globalScope, ensureUint8(value));
+    } catch (err) {
+      console.warn('worker: failed to derive identity fingerprint', err);
+      return null;
+    }
+  }
+
+  function identitiesMatch(existing, candidate) {
+    if (!existing || !candidate) {
+      return true;
+    }
+    const existingFingerprint = identityKeyFingerprint(existing);
+    const candidateFingerprint = identityKeyFingerprint(candidate);
+    if (!existingFingerprint || !candidateFingerprint) {
+      return false;
+    }
+    return existingFingerprint === candidateFingerprint;
+  }
+
   const signalStore = {
     getIdentityKeyPair: () => getValue('identityKeyPair'),
     setIdentityKeyPair: (value) => storeValue('identityKeyPair', value),
@@ -206,9 +268,34 @@ export function setupCryptoWorker({
     storeSession: (id, session) => storeValue(`session${id}`, session),
     removeSession: (id) => storeValue(`session${id}`, undefined),
 
-    isTrustedIdentity: () => true,
+    isTrustedIdentity: (id, identityKey) => {
+      if (!id) {
+        return false;
+      }
+      const stored = getValue(`identityKey${id}`);
+      if (!stored) {
+        return true;
+      }
+      if (!identityKey) {
+        return true;
+      }
+      return identitiesMatch(stored, identityKey);
+    },
     loadIdentityKey: (id) => getValue(`identityKey${id}`),
-    saveIdentity: (id, identityKey) => storeValue(`identityKey${id}`, identityKey),
+    saveIdentity: (id, identityKey) => {
+      const key = `identityKey${id}`;
+      const previous = getValue(key);
+      storeValue(key, identityKey);
+      if (!identityKey) {
+        return false;
+      }
+      const prevFingerprint = identityKeyFingerprint(previous);
+      const nextFingerprint = identityKeyFingerprint(identityKey);
+      if (!nextFingerprint) {
+        return false;
+      }
+      return !prevFingerprint || prevFingerprint !== nextFingerprint;
+    },
 
     reset: () => {
       memoryStore.clear();
@@ -304,6 +391,7 @@ export function setupCryptoWorker({
     const address = getAddress(libsignal, recipientId);
     const builder = new libsignal.SessionBuilder(signalStore, address);
     const preKeyBundle = normaliseBundle(globalScope, bundleBase64);
+    seenCiphertexts.delete(recipientId);
     await builder.processPreKey(preKeyBundle);
     return null;
   }
@@ -336,20 +424,15 @@ export function setupCryptoWorker({
     const envelope = deserialiseEnvelope(globalScope, ciphertextBase64);
     const bodyBytes = base64DecodeToBytes(globalScope, envelope.body);
 
-    let seenForRecipient = seenCiphertexts.get(recipientId);
-    if (!seenForRecipient) {
-      seenForRecipient = new Set();
-      seenCiphertexts.set(recipientId, seenForRecipient);
-    }
     const replayKey = `${envelope.type}:${envelope.body}`;
-    if (seenForRecipient.has(replayKey)) {
+    if (hasSeenCiphertext(recipientId, replayKey)) {
       throw new Error('Replay detected for ciphertext');
     }
 
     const method = envelope.type === 3 ? 'decryptPreKeyWhisperMessage' : 'decryptWhisperMessage';
 
     const plaintext = await cipher[method](toArrayBuffer(bodyBytes), 'binary');
-    seenForRecipient.add(replayKey);
+    rememberCiphertext(recipientId, replayKey);
     return textDecoder.decode(ensureUint8(plaintext));
   }
 
