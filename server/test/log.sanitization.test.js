@@ -3,6 +3,7 @@ import http from 'node:http';
 import { after, before, test } from 'node:test';
 
 import express from 'express';
+
 import { requestIdLogger } from '../src/logger.js';
 
 let srv, base;

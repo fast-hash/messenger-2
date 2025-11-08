@@ -1,6 +1,7 @@
 import express from 'express';
-import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
+
+import { signAccessToken } from '../lib/jwt.js';
 
 export function mountTestBootstrap(app) {
   const verifyMode = String(process.env.VERIFY_MODE || '');
@@ -46,11 +47,11 @@ export function mountTestBootstrap(app) {
     });
 
     const sign = (sub) =>
-      jwt.sign(
-        { sub, aud: process.env.JWT_AUDIENCE || 'aud', iss: process.env.JWT_ISSUER || 'iss' },
-        process.env.JWT_SECRET || 'secret',
-        { algorithm: 'HS256' }
-      );
+      signAccessToken({
+        sub,
+        aud: process.env.JWT_AUDIENCE || 'aud',
+        iss: process.env.JWT_ISSUER || 'iss',
+      });
 
     return res.json({
       chatId: chatId.toString(),

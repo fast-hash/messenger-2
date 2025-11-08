@@ -19,7 +19,7 @@ paths:
                 username: { type: string, minLength: 1 }
                 password: { type: string, minLength: 1 }
       responses:
-        "200":
+        '200':
           description: OK
           headers:
             Set-Cookie:
@@ -35,7 +35,7 @@ paths:
     post:
       summary: Rotate access token
       responses:
-        "200":
+        '200':
           description: OK
           content:
             application/json:
@@ -77,5 +77,5 @@ paths:
           in: query
           schema: { type: string }
       responses:
-        "200":
+        '200':
           description: Page of ciphertexts

@@ -7,5 +7,9 @@
   },
   "mongo": { "uri": "mongodb://127.0.0.1:27017/secure_messenger_test" },
   "redis": { "uri": "redis://127.0.0.1:6379" },
-  "jwt": { "secret": "test-secret", "expiresIn": "15m" }
+  "jwt": {
+    "algorithm": "HS256",
+    "secret": "test-secret",
+    "expiresIn": "15m"
+  }
 }

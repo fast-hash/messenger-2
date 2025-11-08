@@ -14,6 +14,7 @@ const PRIV = privateKey.export({ type: 'pkcs1', format: 'pem' });
 const PUB = publicKey.export({ type: 'pkcs1', format: 'pem' });
 
 process.env.JWT_PUBLIC_KEY = PUB;
+process.env.JWT_ALGORITHM = 'RS256';
 process.env.JWT_CLOCK_TOLERANCE_SEC = String(CLOCK_TOL);
 
 test('expired long ago -> 401', () => {

@@ -1,13 +1,16 @@
 import bcrypt from 'bcryptjs';
 import { Router } from 'express';
-import jwt from 'jsonwebtoken';
 
 import config from '../config.js';
+import { signAccessToken } from '../lib/jwt.js';
 import User from '../models/User.js';
 
 const router = Router();
-const jwtSecret = config.get('jwt.secret');
-const jwtExpires = config.get('jwt.expiresIn');
+const jwtAudience =
+  process.env.JWT_AUDIENCE ||
+  (config.has?.('jwt.audience') ? config.get('jwt.audience') : undefined);
+const jwtIssuer =
+  process.env.JWT_ISSUER || (config.has?.('jwt.issuer') ? config.get('jwt.issuer') : undefined);
 
 router.post('/register', async (req, res) => {
   const { username, email, password, publicKey } = req.body || {};
@@ -25,7 +28,10 @@ router.post('/register', async (req, res) => {
     const hash = await bcrypt.hash(password, salt);
     const user = await User.create({ username, email, password: hash, publicKey });
 
-    const token = jwt.sign({ userId: user.id }, jwtSecret, { expiresIn: jwtExpires });
+    const payload = { sub: user.id, userId: user.id };
+    if (jwtAudience) payload.aud = jwtAudience;
+    if (jwtIssuer) payload.iss = jwtIssuer;
+    const token = signAccessToken(payload);
     return res.status(201).json({ token, userId: user.id });
   } catch (err) {
     req.app?.locals?.logger?.error?.('auth.register_failed', err);
@@ -50,7 +56,10 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'invalid_credentials' });
     }
 
-    const token = jwt.sign({ userId: user.id }, jwtSecret, { expiresIn: jwtExpires });
+    const payload = { sub: user.id, userId: user.id };
+    if (jwtAudience) payload.aud = jwtAudience;
+    if (jwtIssuer) payload.iss = jwtIssuer;
+    const token = signAccessToken(payload);
     return res.json({ token, userId: user.id });
   } catch (err) {
     req.app?.locals?.logger?.error?.('auth.login_failed', err);
