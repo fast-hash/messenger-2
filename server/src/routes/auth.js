@@ -4,6 +4,53 @@ import jwt from 'jsonwebtoken';
 
 import config from '../config.js';
 import User from '../models/User.js';
+import sanitizeBase64 from '../util/sanitizeBase64.js';
+
+const USERNAME_REGEX = /^[a-zA-Z0-9._-]+$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_USERNAME_LENGTH = 32;
+const MIN_USERNAME_LENGTH = 3;
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
+const MAX_PUBLIC_KEY_BYTES = 256;
+
+function sanitizeUsername(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length < MIN_USERNAME_LENGTH || trimmed.length > MAX_USERNAME_LENGTH) {
+    return null;
+  }
+  if (!USERNAME_REGEX.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function sanitizeEmail(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalised = value.trim().toLowerCase();
+  if (normalised.length === 0 || normalised.length > 254) {
+    return null;
+  }
+  if (!EMAIL_REGEX.test(normalised)) {
+    return null;
+  }
+  return normalised;
+}
+
+function sanitizePassword(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  if (value.length < MIN_PASSWORD_LENGTH || value.length > MAX_PASSWORD_LENGTH) {
+    return null;
+  }
+  return value;
+}
 
 const router = Router();
 const jwtSecret = config.get('jwt.secret');
@@ -15,17 +62,31 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'missing_fields' });
   }
 
+  const sanitizedUsername = sanitizeUsername(username);
+  const sanitizedEmail = sanitizeEmail(email);
+  const sanitizedPassword = sanitizePassword(password);
+  const sanitizedPublicKey = sanitizeBase64(publicKey, { maxBytes: MAX_PUBLIC_KEY_BYTES });
+
+  if (!sanitizedUsername || !sanitizedEmail || !sanitizedPassword || !sanitizedPublicKey) {
+    return res.status(400).json({ error: 'invalid_fields' });
+  }
+
   try {
     const existing = await User.findOne({
-      $or: [{ email }, { username }],
+      $or: [{ email: sanitizedEmail }, { username: sanitizedUsername }],
     }).lean();
     if (existing) {
       return res.status(400).json({ error: 'user_exists' });
     }
 
     const salt = await bcrypt.genSalt(10);
-    const hash = await bcrypt.hash(password, salt);
-    const user = await User.create({ username, email, password: hash, publicKey });
+    const hash = await bcrypt.hash(sanitizedPassword, salt);
+    const user = await User.create({
+      username: sanitizedUsername,
+      email: sanitizedEmail,
+      password: hash,
+      publicKey: sanitizedPublicKey,
+    });
 
     const payload = { sub: user.id, userId: user.id };
     const token = jwt.sign(payload, jwtSecret, { expiresIn: jwtExpires, algorithm: 'HS256' });
@@ -45,8 +106,13 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'missing_credentials' });
   }
 
+  const normalisedEmail = sanitizeEmail(email);
+  if (!normalisedEmail) {
+    return res.status(400).json({ error: 'invalid_credentials' });
+  }
+
   try {
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: normalisedEmail });
     if (!user) {
       return res.status(400).json({ error: 'invalid_credentials' });
     }
