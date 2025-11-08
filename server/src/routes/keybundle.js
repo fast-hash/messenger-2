@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import mongoose from 'mongoose';
 
 import KeyBundle from '../models/KeyBundle.js';
 
@@ -37,8 +38,14 @@ export default function keybundleRouter(auth) {
   router.get('/:userId', auth, async (req, res) => {
     const targetId = req.params.userId;
 
+    if (!mongoose.Types.ObjectId.isValid(targetId)) {
+      return res.status(400).json({ error: 'invalid_userId' });
+    }
+
+    const targetObjectId = new mongoose.Types.ObjectId(targetId);
+
     try {
-      const bundle = await KeyBundle.findOne({ userId: targetId }).lean();
+      const bundle = await KeyBundle.findOne({ userId: targetObjectId }).lean();
       if (!bundle) {
         return res.status(404).json({ error: 'not_found' });
       }
@@ -49,7 +56,7 @@ export default function keybundleRouter(auth) {
       }
 
       await KeyBundle.updateOne(
-        { userId: targetId, 'oneTimePreKeys.keyId': otp.keyId },
+        { userId: targetObjectId, 'oneTimePreKeys.keyId': otp.keyId },
         { $set: { 'oneTimePreKeys.$.used': true } }
       );
 
