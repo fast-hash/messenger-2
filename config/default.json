@@ -7,5 +7,10 @@
   },
   "mongo": { "uri": "mongodb://127.0.0.1:27017/secure_messenger" },
   "redis": { "uri": "redis://127.0.0.1:6379" },
-  "jwt": { "secret": "dev-only-secret-please-change", "expiresIn": "1h" }
+  "jwt": {
+    "secret": "dev-only-secret-please-change",
+    "expiresIn": "1h",
+    "audience": "secure-messenger-app",
+    "issuer": "secure-messenger-auth"
+  }
 }
