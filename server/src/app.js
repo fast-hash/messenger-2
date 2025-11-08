@@ -12,7 +12,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import config from './config.js';
 import { requestIdLogger } from './logger.js';
 import { httpMetrics, metricsHandler, wireWsMetrics, incWsAuthFailed } from './metrics.js';
-import authMiddleware from './middleware/auth.js';
+import authMiddleware, { getSharedSecret } from './middleware/auth.js';
 import Chat from './models/Chat.js';
 import authRouter from './routes/auth.js';
 import buildKeybundleRouter from './routes/keybundle.js';
@@ -178,7 +178,7 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
 
   wireWsMetrics(io);
 
-  const secret = process.env.JWT_SECRET || config.get('jwt.secret');
+  const secret = getSharedSecret();
   const audience = process.env.JWT_AUDIENCE || undefined;
   const issuer = process.env.JWT_ISSUER || undefined;
 

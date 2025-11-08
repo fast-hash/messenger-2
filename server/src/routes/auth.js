@@ -27,7 +27,8 @@ router.post('/register', async (req, res) => {
     const hash = await bcrypt.hash(password, salt);
     const user = await User.create({ username, email, password: hash, publicKey });
 
-    const token = jwt.sign({ userId: user.id }, jwtSecret, { expiresIn: jwtExpires });
+    const payload = { sub: user.id, userId: user.id };
+    const token = jwt.sign(payload, jwtSecret, { expiresIn: jwtExpires, algorithm: 'HS256' });
     return res.status(201).json({ token, userId: user.id });
   } catch (err) {
     if (err?.code === 11000 && err?.name === 'MongoServerError') {
@@ -55,7 +56,8 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'invalid_credentials' });
     }
 
-    const token = jwt.sign({ userId: user.id }, jwtSecret, { expiresIn: jwtExpires });
+    const payload = { sub: user.id, userId: user.id };
+    const token = jwt.sign(payload, jwtSecret, { expiresIn: jwtExpires, algorithm: 'HS256' });
     return res.json({ token, userId: user.id });
   } catch (err) {
     req.app?.locals?.logger?.error?.('auth.login_failed', err);

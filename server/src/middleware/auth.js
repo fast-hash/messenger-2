@@ -1,7 +1,13 @@
 // JWT verification with clock skew tolerance and HTTP middleware
 import jwt from 'jsonwebtoken';
 
-const JWT_ALG = ['RS256'];
+import config from '../config.js';
+
+const JWT_ALG = Object.freeze({
+  RS256: 'RS256',
+  HS256: 'HS256',
+});
+const SUPPORTED_ALGS = new Set(Object.values(JWT_ALG));
 const CLOCK_TOLERANCE_SEC = parseInt(process.env.JWT_CLOCK_TOLERANCE_SEC || '120', 10);
 
 function buildUser(payload) {
@@ -17,6 +23,7 @@ function buildUser(payload) {
 }
 
 let cachedPubKey = null;
+let cachedSharedSecret = null;
 
 export function getPublicKey() {
   if (cachedPubKey) return cachedPubKey;
@@ -27,10 +34,56 @@ export function getPublicKey() {
   return cachedPubKey;
 }
 
+export function getSharedSecret() {
+  if (cachedSharedSecret) return cachedSharedSecret;
+
+  // Предпочитаем явный JWT_SHARED_SECRET, но поддерживаем историческое имя JWT_SECRET для совместимости.
+  const envCandidates = [process.env.JWT_SHARED_SECRET, process.env.JWT_SECRET];
+  const fromEnv = envCandidates.find((value) => typeof value === 'string' && value.length > 0);
+  if (fromEnv) {
+    cachedSharedSecret = fromEnv;
+    return cachedSharedSecret;
+  }
+
+  try {
+    const secret = config.get('jwt.secret');
+    if (typeof secret !== 'string' || secret.length === 0) {
+      throw new Error('JWT_SECRET_INVALID');
+    }
+    cachedSharedSecret = secret;
+    return cachedSharedSecret;
+  } catch (err) {
+    throw new Error('JWT_SECRET_NOT_SET', { cause: err });
+  }
+}
+
+function resolveVerification(token) {
+  const decoded = jwt.decode(token, { complete: true });
+  if (!decoded || typeof decoded !== 'object' || !decoded.header) {
+    throw new Error('TOKEN_DECODE_FAILED');
+  }
+
+  const { alg } = decoded.header;
+  if (!SUPPORTED_ALGS.has(alg)) {
+    throw new Error('UNSUPPORTED_ALG');
+  }
+
+  if (alg === JWT_ALG.RS256) {
+    return { key: getPublicKey(), algorithms: [JWT_ALG.RS256] };
+  }
+
+  if (alg === JWT_ALG.HS256) {
+    return { key: getSharedSecret(), algorithms: [JWT_ALG.HS256] };
+  }
+
+  throw new Error('UNSUPPORTED_ALG');
+}
+
 export function verifyAccess(token) {
   if (!token) throw new Error('NO_TOKEN');
-  const payload = jwt.verify(token, getPublicKey(), {
-    algorithms: JWT_ALG,
+  const { key, algorithms } = resolveVerification(token);
+  const payload = jwt.verify(token, key, {
+    algorithms,
     clockTolerance: CLOCK_TOLERANCE_SEC,
   });
   return buildUser(payload);
@@ -48,3 +101,8 @@ export function authRequired(req, res, next) {
 }
 
 export default authRequired;
+
+export function __resetAuthCache() {
+  cachedPubKey = null;
+  cachedSharedSecret = null;
+}
