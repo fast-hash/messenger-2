@@ -11,7 +11,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import config from './config.js';
 import { requestIdLogger } from './logger.js';
 import { httpMetrics, metricsHandler, wireWsMetrics, incWsAuthFailed } from './metrics.js';
-import authMiddleware, { verifyJwt } from './middleware/auth.js';
+import authMiddleware, { verifyJwt, getSharedSecret } from './middleware/auth.js';
 import Chat from './models/Chat.js';
 import authRouter from './routes/auth.js';
 import buildKeybundleRouter from './routes/keybundle.js';
@@ -96,6 +96,17 @@ export function createApp({
 
   const pass = (req, _res, next) => next();
   const auth = overrideAuth || authMiddleware || pass;
+
+  if (!overrideAuth) {
+    try {
+      getSharedSecret();
+    } catch (err) {
+      logger.error?.('jwt_secret_validation_failed', err);
+      const error = new Error('JWT shared secret misconfigured');
+      error.cause = err;
+      throw error;
+    }
+  }
 
   const perUserLimiter = expressRateLimit({
     windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000),
