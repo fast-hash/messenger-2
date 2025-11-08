@@ -188,6 +188,33 @@ export function setupCryptoWorker({
     return memoryStore.get(key) ?? null;
   }
 
+  function identityKeyFingerprint(value) {
+    if (!value) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    try {
+      return base64EncodeBytes(globalScope, ensureUint8(value));
+    } catch (err) {
+      console.warn('worker: failed to derive identity fingerprint', err);
+      return null;
+    }
+  }
+
+  function identitiesMatch(existing, candidate) {
+    if (!existing || !candidate) {
+      return true;
+    }
+    const existingFingerprint = identityKeyFingerprint(existing);
+    const candidateFingerprint = identityKeyFingerprint(candidate);
+    if (!existingFingerprint || !candidateFingerprint) {
+      return false;
+    }
+    return existingFingerprint === candidateFingerprint;
+  }
+
   const signalStore = {
     getIdentityKeyPair: () => getValue('identityKeyPair'),
     setIdentityKeyPair: (value) => storeValue('identityKeyPair', value),
@@ -206,9 +233,34 @@ export function setupCryptoWorker({
     storeSession: (id, session) => storeValue(`session${id}`, session),
     removeSession: (id) => storeValue(`session${id}`, undefined),
 
-    isTrustedIdentity: () => true,
+    isTrustedIdentity: (id, identityKey) => {
+      if (!id) {
+        return false;
+      }
+      const stored = getValue(`identityKey${id}`);
+      if (!stored) {
+        return true;
+      }
+      if (!identityKey) {
+        return true;
+      }
+      return identitiesMatch(stored, identityKey);
+    },
     loadIdentityKey: (id) => getValue(`identityKey${id}`),
-    saveIdentity: (id, identityKey) => storeValue(`identityKey${id}`, identityKey),
+    saveIdentity: (id, identityKey) => {
+      const key = `identityKey${id}`;
+      const previous = getValue(key);
+      storeValue(key, identityKey);
+      if (!identityKey) {
+        return false;
+      }
+      const prevFingerprint = identityKeyFingerprint(previous);
+      const nextFingerprint = identityKeyFingerprint(identityKey);
+      if (!nextFingerprint) {
+        return false;
+      }
+      return !prevFingerprint || prevFingerprint !== nextFingerprint;
+    },
 
     reset: () => {
       memoryStore.clear();

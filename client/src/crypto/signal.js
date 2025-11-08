@@ -10,6 +10,61 @@ let requestCounter = 0;
 const pendingRequests = new Map();
 let storeSyncChain = Promise.resolve();
 
+function toUint8Array(view) {
+  if (view instanceof Uint8Array) {
+    return view;
+  }
+  if (view instanceof ArrayBuffer) {
+    return new Uint8Array(view);
+  }
+  if (ArrayBuffer.isView(view)) {
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+  throw new TypeError('Unsupported binary type');
+}
+
+function bytesToBase64(bytes) {
+  const data = toUint8Array(bytes);
+  if (typeof globalScope.Buffer !== 'undefined') {
+    return globalScope.Buffer.from(data).toString('base64');
+  }
+  if (typeof globalScope.btoa === 'function') {
+    let binary = '';
+    for (let i = 0; i < data.length; i += 1) {
+      binary += String.fromCharCode(data[i]);
+    }
+    return globalScope.btoa(binary);
+  }
+  throw new Error('Base64 encoding not supported in this environment');
+}
+
+function identityKeyFingerprint(value) {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return bytesToBase64(value);
+  } catch (err) {
+    console.warn('Failed to derive identity fingerprint', err);
+    return null;
+  }
+}
+
+function identitiesMatch(existing, next) {
+  if (!existing || !next) {
+    return true;
+  }
+  const currentFingerprint = identityKeyFingerprint(existing);
+  const nextFingerprint = identityKeyFingerprint(next);
+  if (!currentFingerprint || !nextFingerprint) {
+    return false;
+  }
+  return currentFingerprint === nextFingerprint;
+}
+
 function shouldSyncKey(key) {
   if (key === 'identityKeyPair' || key === 'registrationId') {
     return true;
@@ -242,9 +297,34 @@ export const signalStore = {
   storeSession: (id, session) => storeValue(`session${id}`, session, { sync: false }),
   removeSession: (id) => storeValue(`session${id}`, undefined, { sync: false }),
 
-  isTrustedIdentity: () => true,
+  isTrustedIdentity: (id, identityKey) => {
+    if (!id) {
+      return false;
+    }
+    const stored = getValue(`identityKey${id}`);
+    if (!stored) {
+      return true;
+    }
+    if (!identityKey) {
+      return true;
+    }
+    return identitiesMatch(stored, identityKey);
+  },
   loadIdentityKey: (id) => getValue(`identityKey${id}`),
-  saveIdentity: (id, identityKey) => storeValue(`identityKey${id}`, identityKey, { sync: false }),
+  saveIdentity: (id, identityKey) => {
+    const key = `identityKey${id}`;
+    const previous = getValue(key);
+    storeValue(key, identityKey, { sync: false });
+    if (!identityKey) {
+      return false;
+    }
+    const prevFingerprint = identityKeyFingerprint(previous);
+    const nextFingerprint = identityKeyFingerprint(identityKey);
+    if (!nextFingerprint) {
+      return false;
+    }
+    return !prevFingerprint || prevFingerprint !== nextFingerprint;
+  },
 
   reset: () => {
     memoryStore.clear();

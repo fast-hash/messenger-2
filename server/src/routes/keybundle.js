@@ -74,20 +74,32 @@ export default function keybundleRouter(auth) {
     const targetObjectId = new mongoose.Types.ObjectId(targetId);
 
     try {
-      const bundle = await KeyBundle.findOne({ userId: targetObjectId }).lean();
-      if (!bundle) {
-        return res.status(404).json({ error: 'not_found' });
-      }
+      const bundle = await KeyBundle.findOneAndUpdate(
+        { userId: targetObjectId, 'oneTimePreKeys.used': false },
+        { $set: { 'oneTimePreKeys.$.used': true } },
+        {
+          projection: {
+            identityKey: 1,
+            signedPreKey: 1,
+            'oneTimePreKeys.$': 1,
+          },
+          returnDocument: 'before',
+          lean: true,
+        }
+      );
 
-      const otp = bundle.oneTimePreKeys.find((k) => !k.used);
-      if (!otp) {
+      if (!bundle) {
+        const exists = await KeyBundle.exists({ userId: targetObjectId });
+        if (!exists) {
+          return res.status(404).json({ error: 'not_found' });
+        }
         return res.status(410).json({ error: 'no_prekeys' });
       }
 
-      await KeyBundle.updateOne(
-        { userId: targetObjectId, 'oneTimePreKeys.keyId': otp.keyId },
-        { $set: { 'oneTimePreKeys.$.used': true } }
-      );
+      const [otp] = Array.isArray(bundle.oneTimePreKeys) ? bundle.oneTimePreKeys : [];
+      if (!otp) {
+        return res.status(410).json({ error: 'no_prekeys' });
+      }
 
       return res.json({
         identityKey: bundle.identityKey,
