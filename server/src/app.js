@@ -4,7 +4,6 @@ import cors from 'cors';
 import express from 'express';
 import expressRateLimit from 'express-rate-limit';
 import helmet from 'helmet';
-import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import morgan from 'morgan';
 import { Server as SocketIOServer } from 'socket.io';
@@ -12,7 +11,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import config from './config.js';
 import { requestIdLogger } from './logger.js';
 import { httpMetrics, metricsHandler, wireWsMetrics, incWsAuthFailed } from './metrics.js';
-import authMiddleware from './middleware/auth.js';
+import authMiddleware, { verifyJwt } from './middleware/auth.js';
 import Chat from './models/Chat.js';
 import authRouter from './routes/auth.js';
 import buildKeybundleRouter from './routes/keybundle.js';
@@ -144,15 +143,11 @@ export function createApp({
   return app;
 }
 
-function verifySocketToken(token, { secret, audience, issuer }) {
-  const verifyOptions = { algorithms: ['HS256'] };
-  if (audience) {
-    verifyOptions.audience = audience;
-  }
-  if (issuer) {
-    verifyOptions.issuer = issuer;
-  }
-  const payload = jwt.verify(token, secret, verifyOptions);
+function verifySocketToken(token, { audience, issuer }) {
+  const payload = verifyJwt(token, {
+    audience,
+    issuer,
+  });
   const userId = payload.sub || payload.userId || payload.id;
   if (!userId) {
     throw new Error('unauthorized');
@@ -178,7 +173,6 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
 
   wireWsMetrics(io);
 
-  const secret = process.env.JWT_SECRET || config.get('jwt.secret');
   const audience = process.env.JWT_AUDIENCE || undefined;
   const issuer = process.env.JWT_ISSUER || undefined;
 
@@ -193,7 +187,7 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
         return next(new Error('unauthorized'));
       }
 
-      const userId = verifySocketToken(token, { secret, audience, issuer });
+      const userId = verifySocketToken(token, { audience, issuer });
       socket.data.user = { id: userId };
       socket.data.reauthAttempts = [];
       return next();
@@ -235,7 +229,7 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
         attempts.push(now);
         socket.data.reauthAttempts = attempts;
 
-        const nextUserId = verifySocketToken(accessToken, { secret, audience, issuer });
+        const nextUserId = verifySocketToken(accessToken, { audience, issuer });
         socket.data.user = { id: nextUserId };
 
         const rooms = [...socket.rooms].filter((room) => room !== socket.id);

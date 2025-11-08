@@ -8,30 +8,71 @@ import { resetSignalState } from '../crypto/signal';
 
 export const AuthContext = createContext();
 
-function extractUserId(token) {
+const TOKEN_CLOCK_SKEW_SEC = 5;
+
+function decodeAccessToken(token) {
   if (!token) {
     return null;
   }
   try {
     const payload = jwtDecode(token);
-    return payload?.userId || payload?.sub || null;
+    const now = Math.floor(Date.now() / 1000);
+    if (typeof payload.exp === 'number' && payload.exp <= now) {
+      return null;
+    }
+    if (typeof payload.nbf === 'number' && payload.nbf > now + TOKEN_CLOCK_SKEW_SEC) {
+      return null;
+    }
+    return payload;
   } catch (err) {
     console.warn('Failed to decode access token', err);
     return null;
   }
 }
 
+function getUserIdFromPayload(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  return payload.userId || payload.sub || payload.id || null;
+}
+
 export function AuthProvider({ children }) {
-  const initialToken = useMemo(() => getAccessToken(), []);
-  const [token, setToken] = useState(initialToken);
-  const [userId, setUserId] = useState(() => extractUserId(initialToken));
+  const initialSession = useMemo(() => {
+    const storedToken = getAccessToken();
+    const payload = decodeAccessToken(storedToken);
+    const resolvedUserId = getUserIdFromPayload(payload);
+    if (!storedToken || !payload || !resolvedUserId) {
+      clearAccessToken();
+      return { token: null, userId: null };
+    }
+    return { token: storedToken, userId: resolvedUserId };
+  }, []);
+  const [token, setToken] = useState(initialSession.token);
+  const [userId, setUserId] = useState(initialSession.userId);
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const setSession = (nextToken, explicitUserId) => {
+    if (!nextToken) {
+      clearAccessToken();
+      setToken(null);
+      setUserId(null);
+      return null;
+    }
+
+    const payload = decodeAccessToken(nextToken);
+    if (!payload) {
+      throw new Error('Invalid or expired access token received');
+    }
+
+    const resolvedUserId = explicitUserId ?? getUserIdFromPayload(payload);
+    if (!resolvedUserId) {
+      throw new Error('Access token is missing a user identifier');
+    }
+
     setAccessToken(nextToken);
     setToken(nextToken);
-    const resolvedUserId = explicitUserId ?? extractUserId(nextToken);
     setUserId(resolvedUserId);
     return resolvedUserId;
   };

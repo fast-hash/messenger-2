@@ -36,16 +36,24 @@ export function getPublicKey() {
 
 export function getSharedSecret() {
   if (cachedSharedSecret) return cachedSharedSecret;
-  const fromEnv = process.env.JWT_SHARED_SECRET;
-  if (fromEnv && typeof fromEnv === 'string' && fromEnv.length > 0) {
-    cachedSharedSecret = fromEnv;
-    return cachedSharedSecret;
+  const candidates = [process.env.JWT_SHARED_SECRET, process.env.JWT_SECRET];
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === 'string' && candidate.length > 0) {
+      cachedSharedSecret = candidate;
+      return cachedSharedSecret;
+    }
   }
 
   try {
     const secret = config.get('jwt.secret');
     if (typeof secret !== 'string' || secret.length === 0) {
       throw new Error('JWT_SECRET_INVALID');
+    }
+    if (
+      secret === 'dev-only-secret-please-change' &&
+      (process.env.NODE_ENV || '').toLowerCase() === 'production'
+    ) {
+      throw new Error('JWT_SECRET_DEFAULT_IN_PROD');
     }
     cachedSharedSecret = secret;
     return cachedSharedSecret;
@@ -54,7 +62,7 @@ export function getSharedSecret() {
   }
 }
 
-function resolveVerification(token) {
+export function resolveVerification(token) {
   const decoded = jwt.decode(token, { complete: true });
   if (!decoded || typeof decoded !== 'object' || !decoded.header) {
     throw new Error('TOKEN_DECODE_FAILED');
@@ -76,13 +84,19 @@ function resolveVerification(token) {
   throw new Error('UNSUPPORTED_ALG');
 }
 
-export function verifyAccess(token) {
+export function verifyJwt(token, options = {}) {
   if (!token) throw new Error('NO_TOKEN');
   const { key, algorithms } = resolveVerification(token);
-  const payload = jwt.verify(token, key, {
+  const verifyOptions = {
     algorithms,
     clockTolerance: CLOCK_TOLERANCE_SEC,
-  });
+    ...options,
+  };
+  return jwt.verify(token, key, verifyOptions);
+}
+
+export function verifyAccess(token) {
+  const payload = verifyJwt(token);
   return buildUser(payload);
 }
 
