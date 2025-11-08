@@ -1,26 +1,5 @@
 // client/src/api/request.js
 const ABSOLUTE_URL = /^https?:\/\//i;
-
-let accessToken = null;
-
-export function setAccessToken(token) {
-  accessToken = token || null;
-}
-
-export function clearAccessToken() {
-  accessToken = null;
-}
-
-export function getAccessToken() {
-  if (accessToken) {
-    return accessToken;
-  }
-  if (typeof globalThis !== 'undefined' && typeof globalThis.__ACCESS_TOKEN__ === 'string') {
-    return globalThis.__ACCESS_TOKEN__;
-  }
-  return null;
-}
-
 function resolveUrl(path) {
   if (ABSOLUTE_URL.test(path)) {
     return path;
@@ -37,15 +16,10 @@ function resolveUrl(path) {
 
 export async function request(url, method = 'GET', body) {
   const resolvedUrl = resolveUrl(url);
-  const opts = { method, headers: {} };
+  const opts = { method, headers: {}, credentials: 'include' };
   if (body !== undefined && body !== null) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
-  }
-
-  const token = getAccessToken();
-  if (token) {
-    opts.headers.Authorization = `Bearer ${token}`;
   }
 
   const res = await fetch(resolvedUrl, opts);

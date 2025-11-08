@@ -7,16 +7,27 @@
 ### POST /api/auth/register
 
 - Тело: `{ username, email, password, publicKey }`
-- Ответ: `201 { token, userId }`
+- Ответ: `201 { userId }` + `Set-Cookie: access_token=...; HttpOnly`
 - Ошибки: `400 missing_fields`, `400 user_exists`
   【F:server/src/routes/auth.js†L9-L32】
 
 ### POST /api/auth/login
 
 - Тело: `{ email, password }`
-- Ответ: `200 { token, userId }`
+- Ответ: `200 { userId }` + `Set-Cookie: access_token=...; HttpOnly`
 - Ошибки: `400 invalid_credentials`
   【F:server/src/routes/auth.js†L34-L44】
+
+### POST /api/auth/logout
+
+- Очищает cookie сессии, возвращает `204 No Content`
+  【F:server/src/routes/auth.js†L136-L144】
+
+### GET /api/auth/session
+
+- Ответ: `200 { userId }` при валидном cookie `access_token`
+- Ошибки: `401 unauthorized`
+  【F:server/src/routes/auth.js†L146-L157】
 
 ### POST /api/keybundle
 
@@ -50,7 +61,7 @@
 
 ## Socket.IO
 
-- Хендшейк: `Authorization: Bearer <JWT>` заголовок или `auth.token`.
+- Хендшейк: браузерные клиенты автоматически отправляют cookie `access_token`. Также поддерживается `Authorization: Bearer <JWT>` или `auth.token`.
 - События:
   - `join { chatId }` → ack `{ ok: true }` при участии в чате, иначе `{ ok: false, error }`.
   - `message { id, chatId, senderId, encryptedPayload, createdAt }` — рассылается после записи в БД.
