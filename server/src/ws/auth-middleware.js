@@ -8,7 +8,8 @@ export function socketAuth(io) {
   io.use((socket, next) => {
     try {
       const token = socket.handshake?.auth?.token || '';
-      verifyAccess(token);
+      const user = verifyAccess(token);
+      socket.data.user = user;
       next();
     } catch {
       incWsAuthFailed();
@@ -21,7 +22,8 @@ export function socketAuth(io) {
     socket.use((packet, next) => {
       try {
         const token = socket.handshake?.auth?.token || '';
-        verifyAccess(token);
+        const user = verifyAccess(token);
+        socket.data.user = user;
         next();
       } catch {
         incWsAuthFailed();

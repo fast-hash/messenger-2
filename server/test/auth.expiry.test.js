@@ -28,6 +28,7 @@ test('exp just in the past (within skew) -> accepted', () => {
   const now = Math.floor(Date.now() / 1000);
   const token = jwt.sign({ sub: 'u2', iat: now - 30, exp: now - 30 }, PRIV, { algorithm: 'RS256' });
   const payload = verifyAccess(token);
+  assert.equal(payload.id, 'u2');
   assert.equal(payload.sub, 'u2');
 });
 
@@ -37,6 +38,7 @@ test('nbf slightly in the future (within skew) -> accepted', () => {
     algorithm: 'RS256',
   });
   const payload = verifyAccess(token);
+  assert.equal(payload.id, 'u3');
   assert.equal(payload.sub, 'u3');
 });
 
