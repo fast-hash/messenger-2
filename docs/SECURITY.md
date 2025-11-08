@@ -27,7 +27,7 @@ Redis хранит `replay:{chatId}:{sha256(payload)}` с TTL, что предо
 
 ## Socket.IO
 
-- Хендшейк требует JWT из заголовка Authorization; при невалидном токене соединение отклоняется.【F:server/src/app.js†L78-L115】
+- Хендшейк считывает JWT из HttpOnly cookie `access_token`, но остаётся обратная совместимость с заголовком Authorization/`auth.token`; невалидные значения приводят к отказу подключения.【F:server/src/app.js†L193-L236】
 - После проверки пользователь может присоединиться только к комнатам чатов, участником которых является, иначе возвращается ошибка `forbidden`.【F:server/src/app.js†L115-L142】【F:server/src/models/Chat.js†L1-L24】
 
 ## Ограничения и известные риски

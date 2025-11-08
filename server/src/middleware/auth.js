@@ -2,6 +2,7 @@
 import jwt from 'jsonwebtoken';
 
 import config from '../config.js';
+import { extractAccessToken } from '../util/accessTokenCookie.js';
 
 const JWT_ALG = Object.freeze({
   RS256: 'RS256',
@@ -102,8 +103,7 @@ export function verifyAccess(token) {
 
 export function authRequired(req, res, next) {
   try {
-    const hdr = req.headers.authorization || '';
-    const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : '';
+    const token = extractAccessToken(req);
     req.user = verifyAccess(token);
     return next();
   } catch {

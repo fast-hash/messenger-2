@@ -9,7 +9,7 @@ import { AuthContext } from '../contexts/AuthContext';
 import { initSession, decryptMessage } from '../crypto/signal.js';
 
 export default function ChatPage() {
-  const { token, userId, logout } = useContext(AuthContext);
+  const { isAuthenticated, userId, logout } = useContext(AuthContext);
   const { chatId: routeChatId } = useParams();
 
   const chatId = useMemo(() => routeChatId, [routeChatId]);
@@ -83,7 +83,7 @@ export default function ChatPage() {
   useEffect(() => {
     setJoinError('');
     setJoinedRoom(false);
-    if (!token || !sessionReady) return undefined;
+    if (!isAuthenticated || !sessionReady) return undefined;
 
     const configuredUrl = (import.meta.env.VITE_API_URL || '').trim();
     const fallbackOrigin =
@@ -134,7 +134,7 @@ export default function ChatPage() {
     };
 
     const socket = io(resolvedUrl, {
-      auth: { token },
+      withCredentials: true,
     });
 
     let cancelled = false;
@@ -198,7 +198,7 @@ export default function ChatPage() {
       socket.off('disconnect', disconnectHandler);
       socket.disconnect();
     };
-  }, [chatId, logout, sessionReady, token]);
+  }, [chatId, logout, sessionReady, isAuthenticated]);
 
   const handleSend = async (plainText) => {
     if (!sessionReady || !plainText || !joinedRoom) return;

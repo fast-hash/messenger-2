@@ -63,6 +63,8 @@ export async function history(chatId, options = {}) {
 const api = {
   register: (data) => request('/api/auth/register', 'POST', data),
   login: (data) => request('/api/auth/login', 'POST', data),
+  logout: () => request('/api/auth/logout', 'POST'),
+  session: () => request('/api/auth/session'),
   uploadBundle: (bundle) => request('/api/keybundle', 'POST', bundle),
   getBundle,
   sendMessage,

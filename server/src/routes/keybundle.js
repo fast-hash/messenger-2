@@ -2,7 +2,7 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 
 import KeyBundle from '../models/KeyBundle.js';
-import base64Regex from '../util/base64Regex.js';
+import sanitizeBase64 from '../util/sanitizeBase64.js';
 
 const MIN_KEY_B64_LEN = 16;
 const MAX_KEY_B64_LEN = 512;
@@ -12,48 +12,9 @@ const MAX_SIGNED_PREKEY_BYTES = 256;
 const MAX_SIGNATURE_BYTES = 512;
 const MAX_ONE_TIME_PRE_KEY_BYTES = 256;
 
-function sanitizeBase64(
-  value,
-  { minLength = MIN_KEY_B64_LEN, maxLength = MAX_KEY_B64_LEN, maxBytes } = {}
-) {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (trimmed !== value) {
-    return null;
-  }
-  if (trimmed.length < minLength || trimmed.length > maxLength) {
-    return null;
-  }
-  if (trimmed.length % 4 !== 0) {
-    return null;
-  }
-  if (!base64Regex.test(trimmed)) {
-    return null;
-  }
-
-  try {
-    const decoded = Buffer.from(trimmed, 'base64');
-    if (decoded.length === 0) {
-      return null;
-    }
-    if (typeof maxBytes === 'number' && maxBytes > 0 && decoded.length > maxBytes) {
-      return null;
-    }
-    if (decoded.toString('base64') !== trimmed) {
-      return null;
-    }
-    return trimmed;
-  } catch {
-    return null;
-  }
-}
-
 function sanitizeIdentityKey(value) {
   return sanitizeBase64(value, {
-    minLength: 16,
+    minLength: MIN_KEY_B64_LEN,
     maxLength: MAX_KEY_B64_LEN,
     maxBytes: MAX_IDENTITY_KEY_BYTES,
   });
@@ -70,12 +31,12 @@ function sanitizeSignedPreKey(value) {
   }
 
   const sanitizedPublicKey = sanitizeBase64(publicKey, {
-    minLength: 16,
+    minLength: MIN_KEY_B64_LEN,
     maxLength: MAX_KEY_B64_LEN,
     maxBytes: MAX_SIGNED_PREKEY_BYTES,
   });
   const sanitizedSignature = sanitizeBase64(signature, {
-    minLength: 16,
+    minLength: MIN_KEY_B64_LEN,
     maxLength: MAX_SIGNATURE_B64_LEN,
     maxBytes: MAX_SIGNATURE_BYTES,
   });
@@ -123,7 +84,7 @@ function sanitizeOneTimePreKeys(items) {
     }
 
     const sanitizedPublicKey = sanitizeBase64(entry.publicKey, {
-      minLength: 16,
+      minLength: MIN_KEY_B64_LEN,
       maxLength: MAX_KEY_B64_LEN,
       maxBytes: MAX_ONE_TIME_PRE_KEY_BYTES,
     });
@@ -142,6 +103,10 @@ function sanitizeOneTimePreKeys(items) {
     if (sanitized.length > maxPreKeys) {
       return null;
     }
+  }
+
+  if (sanitized.length === 0) {
+    return null;
   }
 
   return sanitized;

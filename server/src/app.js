@@ -17,6 +17,7 @@ import authRouter from './routes/auth.js';
 import buildKeybundleRouter from './routes/keybundle.js';
 import messagesRouter from './routes/messages.js';
 import { mountTestBootstrap } from './test/bootstrap.routes.js';
+import { parseCookies, COOKIE_NAME } from './util/accessTokenCookie.js';
 
 export async function connectMongo(uri) {
   const configuredUri =
@@ -192,7 +193,10 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
       const header = socket.handshake.headers?.authorization;
       const tokenFromHeader =
         typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : undefined;
-      const token = tokenFromHeader || socket.handshake.auth?.token;
+      const cookieHeader = socket.handshake.headers?.cookie;
+      const cookies = parseCookies(cookieHeader);
+      const cookieToken = cookies.get(COOKIE_NAME);
+      const token = tokenFromHeader || socket.handshake.auth?.token || cookieToken;
       if (!token) {
         incWsAuthFailed();
         return next(new Error('unauthorized'));
@@ -200,6 +204,9 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
 
       const userId = verifySocketToken(token, { audience, issuer });
       socket.data.user = { id: userId };
+      if (cookieToken) {
+        socket.data.cookieToken = cookieToken;
+      }
       socket.data.reauthAttempts = [];
       return next();
     } catch {
@@ -234,14 +241,17 @@ export function attachSockets(server, { cors: corsOptions } = {}) {
         if (attempts.length >= REAUTH_MAX_ATTEMPTS) {
           throw new Error('rate_limited');
         }
-        if (typeof accessToken !== 'string' || !accessToken) {
+        const providedToken =
+          typeof accessToken === 'string' && accessToken ? accessToken : socket.data.cookieToken;
+        if (typeof providedToken !== 'string' || !providedToken) {
           throw new Error('invalid_token');
         }
         attempts.push(now);
         socket.data.reauthAttempts = attempts;
 
-        const nextUserId = verifySocketToken(accessToken, { audience, issuer });
+        const nextUserId = verifySocketToken(providedToken, { audience, issuer });
         socket.data.user = { id: nextUserId };
+        socket.data.cookieToken = providedToken;
 
         const rooms = [...socket.rooms].filter((room) => room !== socket.id);
         await Promise.all(

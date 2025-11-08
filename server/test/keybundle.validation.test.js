@@ -42,6 +42,7 @@ test('setup', async () => {
 
 test('rejects invalid one-time pre-key payloads', async () => {
   const cases = [
+    [],
     [{ keyId: '1', publicKey: VALID_KEY }],
     [{ keyId: 1 }],
     [{ keyId: 1, publicKey: '' }],

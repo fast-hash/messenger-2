@@ -8,22 +8,32 @@ import LoginPage from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 
 function Protected({ children }) {
-  const { token } = useContext(AuthContext);
-  if (!token) {
+  const { isAuthenticated, initialised } = useContext(AuthContext);
+  if (!initialised) {
+    return null;
+  }
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
   return children;
 }
 
 export default function App() {
-  const { token } = useContext(AuthContext);
+  const { isAuthenticated, initialised } = useContext(AuthContext);
+
+  if (!initialised) {
+    return null;
+  }
 
   return (
     <Routes>
-      <Route path="/login" element={token ? <Navigate to="/chat" replace /> : <LoginPage />} />
+      <Route
+        path="/login"
+        element={isAuthenticated ? <Navigate to="/chat" replace /> : <LoginPage />}
+      />
       <Route
         path="/register"
-        element={token ? <Navigate to="/chat" replace /> : <RegisterPage />}
+        element={isAuthenticated ? <Navigate to="/chat" replace /> : <RegisterPage />}
       />
       <Route
         path="/chat"
@@ -44,7 +54,7 @@ export default function App() {
           </Protected>
         }
       />
-      <Route path="*" element={<Navigate to={token ? '/chat' : '/login'} replace />} />
+      <Route path="*" element={<Navigate to={isAuthenticated ? '/chat' : '/login'} replace />} />
     </Routes>
   );
 }

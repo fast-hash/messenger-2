@@ -12,7 +12,7 @@
 ```mermaid
 graph TD
   A[Client (React + WebCrypto + Signal Worker)] -->|REST /auth,/keybundle,/messages| B[Server (Express)]
-  A -->|Socket.IO (JWT)| B
+  A -->|Socket.IO (JWT cookie)| B
   B -->|ciphertext only| C[(MongoDB)]
   B -->|replay digests| D[(Redis)]
 ```
@@ -46,7 +46,7 @@ sequenceDiagram
   DB-->>S: [{ chatId, senderId, encryptedPayload, createdAt }]
   S-->>U: ciphertext history (base64)
   U->>U: decryptMessage(encryptedPayload)
-  U->>IO: connect (Authorization: Bearer JWT)
+  U->>IO: connect (cookie access_token)
   IO->>S: verify JWT
   S-->>IO: socket.data.userId = sub
   U->>S: emit join { chatId }
